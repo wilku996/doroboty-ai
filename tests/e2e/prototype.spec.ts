@@ -28,7 +28,10 @@ for (const [name, filename] of [
   }) => {
     const external: string[] = [];
     page.on("request", (request) => {
-      if (!request.url().startsWith("http://127.0.0.1:3106")) external.push(request.url());
+      // Chrome's PDF viewer also loads browser-internal chrome: resources.
+      const url = new URL(request.url());
+      if (["http:", "https:"].includes(url.protocol) && url.origin !== "http://127.0.0.1:3106")
+        external.push(url.href);
     });
     await choose(page, name);
     await page.goto("/#/app/profil");
@@ -734,8 +737,10 @@ test("process sheet keeps notes across keyboard tabs and saves stage history wit
   await note.fill("Zakończenie przykładowego procesu.");
   await page.getByRole("button", { name: "Proces zakończony", exact: true }).click();
   await expect(page.locator(".record-stage")).toBeFocused();
-  await expect(note).toHaveCount(0);
-  await expect(page.locator(".record-actions")).toHaveCount(0);
+  await expect(note).toBeVisible();
+  await expect(note).toHaveValue("");
+  await expect(page.locator(".record-actions")).toHaveText("Otwórz ponownie");
+  await expect(page.getByRole("button", { name: "Otwórz ponownie", exact: true })).toBeEnabled();
   await expect(page.locator(".process-timeline li")).toHaveCount(3);
   const accessibility = await new AxeBuilder({ page }).include(".recruiting-record").analyze();
   expect(accessibility.violations).toEqual([]);
