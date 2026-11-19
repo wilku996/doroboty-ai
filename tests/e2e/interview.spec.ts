@@ -69,7 +69,7 @@ for (const width of [1280, 390, 320]) {
 }
 
 for (const width of [1280, 390]) {
-  test(`adaptive conversation skips covered areas and preserves cross-answer evidence at ${width}px`, async ({
+  test(`adaptive conversation replaces covered questions, asks five basics and preserves cross-answer evidence at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 880 });
@@ -117,6 +117,24 @@ for (const width of [1280, 390]) {
         "Model zmyślał daty. Po wykryciu błędu zmieniliśmy prompt, dodając zakaz dopisywania dat bez źródła.",
       );
     await page.getByRole("button", { name: "Zatwierdź odpowiedź" }).click();
+    await expect(page.getByText(/Pytanie podstawowe 4 z 5/)).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        name: "Jak sprawdzono wpływ Twojej zmiany instrukcji na odpowiedzi modelu AI?",
+      }),
+    ).toBeFocused();
+    await expect(page.getByText("Rozmowa zakończona.", { exact: true })).toHaveCount(0);
+    await page.reload();
+    await page.getByRole("button", { name: "Wznów rozmowę" }).click();
+    await expect(page.getByText(/Pytanie podstawowe 4 z 5/)).toBeVisible();
+    await page.getByRole("button", { name: "Pomiń pytanie" }).press("Enter");
+    await expect(page.getByText(/Pytanie podstawowe 5 z 5/)).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        name: "Jak oddzielaliście przykłady używane do poprawiania AI od przykładów do końcowej oceny?",
+      }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Pomiń pytanie" }).press("Enter");
     await expect(page.getByText("Rozmowa zakończona.", { exact: true })).toBeVisible();
     await page
       .getByRole("checkbox", { name: "Dołącz raport z rozmowy do aplikacji", exact: true })

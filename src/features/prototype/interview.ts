@@ -2,6 +2,7 @@ import { z } from "zod";
 import marketplace from "./data/marketplace.json" with { type: "json" };
 import { topicCoverage } from "./interview-coverage";
 import { explainReply } from "./interview-explanations";
+import { isSituationalQuestion, replacementBasic } from "./interview-ai-skills";
 
 const source = z.string().max(12000);
 const sourcesSchema = z.object({
@@ -182,6 +183,7 @@ const interviewData = z.object({
   adaptiveFrom: z.number().int().min(0).max(8).optional(),
   detailFrom: z.number().int().min(0).max(8).optional(),
   aiFrom: z.number().int().min(0).max(8).optional(),
+  fiveFrom: z.number().int().min(0).max(8).optional(),
   sources: sourcesSchema,
   turns: z
     .array(
@@ -265,6 +267,7 @@ export function nextQuestion(interview: Interview): Question | undefined {
   if (turns.length >= 8) return undefined;
   const coverage = topicCoverage(interview);
   const practicalAI = interview.aiFrom !== undefined && turns.length >= interview.aiFrom;
+  const fiveBasics = interview.fiveFrom !== undefined && turns.length >= interview.fiveFrom;
   for (const topic of topics) {
     const area = coverage.find((item) => item.id === topic.id)!;
     if (area.covered || !area.missing.length || turns.some((turn) => turn.id === topic.id))
@@ -274,6 +277,15 @@ export function nextQuestion(interview: Interview): Question | undefined {
     return area.facts.length
       ? { ...topic, plannedPrompt: area.missing[0].ask, context: area.facts[0] }
       : topic;
+  }
+  if (fiveBasics) {
+    const topic = topics.find((item) => !turns.some((turn) => turn.id === item.id));
+    if (topic)
+      return {
+        ...topic,
+        plannedPrompt: replacementBasic(interview, topic.id),
+        context: coverage.find((area) => area.id === topic.id)?.facts[0],
+      };
   }
   if (turns.filter((turn) => !isBasicQuestion(turn.id)).length >= 3) return undefined;
   for (const topic of topics) {
@@ -345,6 +357,8 @@ export const interviewSchema = interviewData.refine(
         i.detailFrom <= i.turns.length)) &&
     (i.aiFrom === undefined ||
       (i.detailFrom !== undefined && i.aiFrom >= i.detailFrom && i.aiFrom <= i.turns.length)) &&
+    (i.fiveFrom === undefined ||
+      (i.aiFrom !== undefined && i.fiveFrom >= i.aiFrom && i.fiveFrom <= i.turns.length)) &&
     i.turns.every(
       (t, index) => nextQuestion({ ...i, turns: i.turns.slice(0, index) })?.id === t.id,
     ),
@@ -388,7 +402,8 @@ export function reportItems(i: Interview) {
               ? "Pozwala sprawdzić, na jakiej podstawie wybrano problem do rozwiązania. Rekruter może zestawić tę decyzję z zadaniem opisanym w ofercie."
               : meaning,
       reply: t.reply,
-      explanations: explainReply(t.reply, i.sources),
+      situational: isSituationalQuestion(t.question),
+      explanations: isSituationalQuestion(t.question) ? [] : explainReply(t.reply, i.sources),
     };
   });
 }
@@ -396,7 +411,10 @@ export function reportItems(i: Interview) {
 export function reportCoverage(interview: Interview) {
   return topicCoverage(interview).map((original) => {
     const recognized = interview.turns.flatMap((turn, index) =>
-      explainReply(turn.reply, interview.sources).flatMap((explanation) =>
+      explainReply(
+        isSituationalQuestion(turn.question) ? null : turn.reply,
+        interview.sources,
+      ).flatMap((explanation) =>
         (explanation.evidenceLabels ?? [])
           .filter((label) => original.missing.some((detail) => detail.label === label))
           .map((label) => ({ label, text: explanation.quote, turn: index + 1 })),

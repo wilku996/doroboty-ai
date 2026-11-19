@@ -10,7 +10,7 @@ const normalize = (text: string) =>
     .trim();
 
 // Finite, explicit local simulation. These rules recognize descriptions, not
-// competence. An exhausted catalog leaves a gap instead of inventing a question.
+// competence. Missing evidence remains a gap in the report.
 export function aiSkillCoverage(interview: Interview) {
   const cv = interview.sources.cv;
   const ticketAssistant = /asystent/i.test(cv) && /zgłosze/i.test(cv);
@@ -137,7 +137,7 @@ export function aiSkillCoverage(interview: Interview) {
     details.own[0].ask =
       "Jaką instrukcję otrzymywał model AI, gdy brakowało danych potrzebnych do wykonania zadania?";
   const excerpts = interview.turns.flatMap((turn, index) =>
-    split(turn.reply ?? "")
+    split(isSituationalQuestion(turn.question) ? "" : (turn.reply ?? ""))
       .filter(
         (text) =>
           !normalize(cv).includes(normalize(text)) &&
@@ -156,4 +156,80 @@ export function aiSkillCoverage(interview: Interview) {
     const missing = unknown.filter((detail) => !facts.some((fact) => fact.label === detail.label));
     return { id, facts, missing, covered: unknown.length > 0 && missing.length === 0 };
   });
+}
+
+export function isSituationalQuestion(question?: string) {
+  return question?.startsWith("Zadanie sytuacyjne") ?? false;
+}
+
+// Replacement basics ask about another skill; they do not imply that a practice
+// occurred. Scenarios are explicitly hypothetical and excluded from work evidence.
+const replacementDetails: Record<string, Detail[]> = {
+  goal: [
+    {
+      label: "Warunek zatrzymania wdrożenia AI",
+      ask: "Jak ustalano, które błędy AI wykluczają wdrożenie rozwiązania?",
+      matches: (t) => has(t, /błęd|pomył/i, /wyklucz|zatrzym|rezygn|próg|niedopuszcz/i),
+    },
+  ],
+  own: [
+    {
+      label: "Sprawdzenie własnej zmiany instrukcji",
+      ask: "Jak sprawdzono wpływ Twojej zmiany instrukcji na odpowiedzi modelu AI?",
+      matches: (t) => has(t, /instrukcj|prompt/i, /zmian|popraw/i, /porówn|sprawdz|test/i),
+    },
+  ],
+  ai: [
+    {
+      label: "Ograniczanie danych poufnych dla AI",
+      ask: "Jak ograniczaliście przekazywanie poufnych danych do modelu AI?",
+      matches: (t) =>
+        has(t, /dan|informac/i, /poufn|osobow/i, /mask|anonim|usuwa|filtrow|ogranicz/i),
+    },
+  ],
+  effect: [
+    {
+      label: "Oddzielenie przykładów do poprawiania i oceny AI",
+      ask: "Jak oddzielaliście przykłady używane do poprawiania AI od przykładów do końcowej oceny?",
+      matches: (t) =>
+        has(
+          t,
+          /przykład|zestaw|zbiór|danych/i,
+          /oddziel|osobn|podział|niewykorzyst|niezależn/i,
+          /test|ocen|popraw/i,
+        ),
+    },
+  ],
+  limits: [
+    {
+      label: "Wykrywanie pogorszenia działania AI",
+      ask: "Jak wykrywaliście pogorszenie odpowiedzi AI po uruchomieniu rozwiązania?",
+      matches: (t) =>
+        has(t, /monitor|alarm|przegląd|regularn/i, /odpowied|model|AI/i, /błęd|jakoś|pogorsz/i),
+    },
+  ],
+};
+const situations: Record<string, string> = {
+  goal: "Model poprawnie obsługuje 18 z 20 przypadków, ale w dwóch pozostałych podaje błędną kwotę. Jakiej dodatkowej informacji potrzebujesz do decyzji o pilotażu?",
+  own: "Model ma zwracać wyłącznie kategorię zgłoszenia, ale dopisuje wyjaśnienia. Jaką pojedynczą zmianę instrukcji zaproponujesz?",
+  ai: "Model ma dostęp do dwóch instrukcji o sprzecznej treści i nie zna dat ich aktualizacji. Jak powinien postąpić przed przygotowaniem odpowiedzi?",
+  effect:
+    "Wynik testu wzrósł z 80% do 95%, ale z zestawu usunięto trudne przypadki. Jak sprawdzisz, czy model rzeczywiście się poprawił?",
+  limits:
+    "Po zmianie modelu liczba błędnych odpowiedzi rośnie, chociaż instrukcja jest ta sama. Jaki pierwszy krok diagnostyczny wybierzesz?",
+};
+
+export function replacementBasic(interview: Interview, topic: string) {
+  const known = [interview.sources.cv, ...interview.turns.map((turn) => turn.reply ?? "")].join(
+    "\n",
+  );
+  const detail = replacementDetails[topic]?.find(
+    (item) =>
+      !split(known).some(item.matches) &&
+      !interview.turns.some((turn) => turn.question === item.ask),
+  );
+  return (
+    detail?.ask ??
+    `Zadanie sytuacyjne dla roli „${interview.sources.title}” (nie opis Twojego projektu): ${situations[topic]}`
+  );
 }

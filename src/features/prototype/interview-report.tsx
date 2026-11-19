@@ -43,7 +43,9 @@ export function InterviewReport({
             <p>
               <strong>Co oznacza odpowiedź</strong>
               <br />
-              {briefExplanation(row.explanations)}
+              {row.situational
+                ? "To odpowiedź na zadanie sytuacyjne. Opis proponowanego działania nie potwierdza wykonania takiej pracy w projekcie."
+                : briefExplanation(row.explanations)}
             </p>
             <details>
               <summary>Źródła i szczegóły interpretacji</summary>
@@ -80,6 +82,16 @@ export function InterviewReport({
         ))}
       {rows.every((row) => !row.reply) && <p>Wszystkie pytania zostały pominięte.</p>}
       <OptionalTestPanel key={application.id} application={application} />
+      {rows.some((row) => row.reply === null) && (
+        <details>
+          <summary>Pominięte pytania</summary>
+          {rows
+            .filter((row) => row.reply === null)
+            .map((row, index) => (
+              <p key={index}>{row.question} — pominięto odpowiedź.</p>
+            ))}
+        </details>
+      )}
       {coverage.some((area) => area.facts.length) && (
         <>
           <h4>Obszary opisane w odpowiedziach</h4>

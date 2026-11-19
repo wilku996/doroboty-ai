@@ -12,6 +12,7 @@ import {
   completedInterviewSchema,
   interviewSchema,
   interviewSources,
+  isBasicQuestion,
   nextQuestion,
   prompt,
   replySchema,
@@ -364,15 +365,18 @@ export function transition(
             adaptiveFrom: 0,
             detailFrom: 0,
             aiFrom: 0,
+            fiveFrom: 0,
             sources,
             turns: [],
           };
-        else if (draft.interview.adaptiveFrom === undefined && nextQuestion(draft.interview))
+        else if (draft.interview.adaptiveFrom === undefined)
           draft.interview.adaptiveFrom = draft.interview.turns.length;
-        if (draft.interview.detailFrom === undefined && nextQuestion(draft.interview))
+        if (draft.interview.detailFrom === undefined)
           draft.interview.detailFrom = draft.interview.turns.length;
-        if (draft.interview.aiFrom === undefined && nextQuestion(draft.interview))
+        if (draft.interview.aiFrom === undefined)
           draft.interview.aiFrom = draft.interview.turns.length;
+        if (draft.interview.aiFrom !== undefined && draft.interview.fiveFrom === undefined)
+          draft.interview.fiveFrom = draft.interview.turns.length;
       } else {
         const i = draft.interview;
         if (
@@ -401,7 +405,10 @@ export function transition(
       : undefined;
     if (
       action.includeReport &&
-      (!report || nextQuestion(report) || !sameSources(report.sources, interviewSources(p.cv, job)))
+      (!report ||
+        nextQuestion(report) ||
+        report.turns.filter((turn) => isBasicQuestion(turn.id)).length !== 5 ||
+        !sameSources(report.sources, interviewSources(p.cv, job)))
     )
       return fail("Dołącz ukończoną rozmowę opartą na aktualnym CV i ofercie.");
     if (s.applications.some((x) => x.candidateId === p.id && x.jobId === job.id))

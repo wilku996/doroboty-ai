@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import { initialState, transition } from "./model";
 import {
   interviewSchema,
+  completedInterviewSchema,
+  isBasicQuestion,
   interviewSources,
   nextQuestion,
   prompt,
   reportCoverage,
   type Interview,
 } from "./interview";
+import { parseState, serializeState } from "./storage";
 
 const state = initialState();
 const sources = interviewSources(state.people[0].cv, state.jobs[0]);
@@ -16,6 +19,7 @@ const start = (): Interview => ({
   adaptiveFrom: 0,
   detailFrom: 0,
   aiFrom: 0,
+  fiveFrom: 0,
   sources,
   turns: [],
 });
@@ -70,10 +74,14 @@ describe("practical AI interview", () => {
     expect(reportCoverage(i).find((area) => area.id === "own")?.covered).toBe(true);
     const continued = reply(i, [provenance, examples, evaluation].join(" "));
     expect(nextQuestion(continued)?.id).toBe("limits");
-    expect(nextQuestion(reply(continued, failure + " " + correction))).toBeUndefined();
+    const fourth = reply(continued, failure + " " + correction);
+    expect(prompt(sources, nextQuestion(fourth)!)).toContain("wpływ Twojej zmiany instrukcji");
+    const fifth = reply(fourth, null);
+    expect(prompt(sources, nextQuestion(fifth)!)).toContain("oddzielaliście przykłady");
+    expect(nextQuestion(reply(fifth, null))).toBeUndefined();
   });
-  it("finishes after one detailed response without filling a quota", () => {
-    const i = reply(
+  it("asks five basics even when the first reply covers every original area, with no automatic follow-ups", () => {
+    let i = reply(
       start(),
       [
         feasibility,
@@ -87,7 +95,14 @@ describe("practical AI interview", () => {
       ].join(" "),
     );
     expect(reportCoverage(i).every((area) => area.covered)).toBe(true);
+    expect(completedInterviewSchema.safeParse(i).success).toBe(false);
+    while (i.turns.length < 5) {
+      expect(isBasicQuestion(nextQuestion(i)!.id)).toBe(true);
+      i = reply(i, null);
+    }
+    expect(new Set(i.turns.map((turn) => turn.question)).size).toBe(5);
     expect(nextQuestion(i)).toBeUndefined();
+    expect(completedInterviewSchema.safeParse(i).success).toBe(true);
   });
   it("does not ask for a detail already present anywhere in the CV", () => {
     let i = start();
@@ -96,6 +111,104 @@ describe("practical AI interview", () => {
     expect(nextQuestion(i)?.id).toBe("ai");
     expect(prompt(i.sources, nextQuestion(i)!)).toContain("materiału źródłowego");
     expect(reportCoverage(i).find((area) => area.id === "own")?.covered).toBe(false);
+  });
+  it("replaces details already explained in the CV and keeps hypothetical answers separate from work evidence", () => {
+    let i = start();
+    i.sources = {
+      ...sources,
+      cv: [
+        sources.cv,
+        feasibility,
+        instruction,
+        context,
+        provenance,
+        examples,
+        evaluation,
+        failure,
+        correction,
+        "Błędy AI wykluczały wdrożenie.",
+        "Wpływ zmiany instrukcji sprawdzaliśmy przez porównanie odpowiedzi.",
+        "Dane poufne były anonimizowane.",
+        "Osobny zestaw przykładów służył do testowania.",
+        "Regularny przegląd odpowiedzi AI wykrywał błędy.",
+      ].join("\n"),
+    };
+    for (let n = 0; n < 5; n++) {
+      expect(nextQuestion(i)!.ask).toBeDefined();
+      expect(prompt(i.sources, nextQuestion(i)!)).toContain("Zadanie sytuacyjne");
+      i = reply(
+        i,
+        "Model zmyślał daty. Dublowaliśmy zgłoszenia, opisywaliśmy przeczące sobie rzeczy.",
+      );
+    }
+    expect(i.turns.filter((turn) => isBasicQuestion(turn.id))).toHaveLength(5);
+    expect(new Set(i.turns.map((turn) => turn.question)).size).toBe(5);
+    expect(reportCoverage(i).every((area) => !area.facts.length)).toBe(true);
+    expect(nextQuestion(i)).toBeUndefined();
+  });
+  it.each([0, 1, 2, 3])(
+    "chooses %i optional clarifications from unresolved details after five basics",
+    (count) => {
+      let i = start();
+      for (const text of [
+        feasibility,
+        count >= 1 ? instruction.replace("Dodałam do", "Dodano do") : instruction,
+        count >= 2 ? context : context + " " + provenance,
+        count >= 3 ? examples : examples + " " + evaluation,
+        failure + " " + correction,
+      ])
+        i = reply(i, text);
+      expect(i.turns.filter((turn) => isBasicQuestion(turn.id))).toHaveLength(5);
+      let extra = 0;
+      while (nextQuestion(i)) {
+        expect(isBasicQuestion(nextQuestion(i)!.id)).toBe(false);
+        i = reply(i, null);
+        extra++;
+        expect(extra).toBeLessThanOrEqual(3);
+      }
+      expect(extra).toBe(count);
+    },
+  );
+  it("extends an older short draft on resume while preserving completed legacy reports", () => {
+    const old = {
+      ...reply(
+        start(),
+        [
+          feasibility,
+          instruction,
+          context,
+          provenance,
+          examples,
+          evaluation,
+          failure,
+          correction,
+        ].join(" "),
+      ),
+      fiveFrom: undefined,
+    };
+    expect(completedInterviewSchema.safeParse(old).success).toBe(true);
+    let scenario = transition(state, { type: "select_person", id: "candidate-anna" });
+    scenario.drafts.push({
+      candidateId: "candidate-anna",
+      jobId: state.jobs[0].id,
+      answer: "",
+      notes: "",
+      generated: "",
+      interview: old,
+    });
+    const before = JSON.stringify(old);
+    scenario = transition(scenario, {
+      type: "interview_start",
+      jobId: state.jobs[0].id,
+      answer: "",
+    });
+    const resumed = parseState(serializeState(scenario)).drafts[0].interview!;
+    expect(resumed.fiveFrom).toBe(1);
+    expect(resumed.turns).toEqual(old.turns);
+    expect(nextQuestion(resumed)).toBeDefined();
+    expect(completedInterviewSchema.safeParse(resumed).success).toBe(false);
+    expect(JSON.stringify(old)).toBe(before);
+    expect(completedInterviewSchema.safeParse(old).success).toBe(true);
   });
   it("keeps three relevant follow-ups within eight turns and never repeats a prompt", () => {
     let i = start();

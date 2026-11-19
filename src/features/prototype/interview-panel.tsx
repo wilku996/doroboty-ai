@@ -40,6 +40,8 @@ export function InterviewPanel({
   const pendingFocus = useRef(false);
   const stale = interview && !sameSources(sources, interview.sources);
   const question = interview && nextQuestion(interview);
+  const needsBasics =
+    interview && interview.turns.filter((turn) => isBasicQuestion(turn.id)).length < 5;
   const active = open && !stale && question && interview;
   useLayoutEffect(() => {
     if (!pendingFocus.current) return;
@@ -84,7 +86,9 @@ export function InterviewPanel({
           <p className="application-help">
             {"Pytanie " + (interview.turns.length + 1) + " z maks. 8 · "}
             {isBasicQuestion(question.id)
-              ? "Obszar podstawowy"
+              ? "Pytanie podstawowe " +
+                (interview.turns.filter((turn) => isBasicQuestion(turn.id)).length + 1) +
+                " z 5"
               : "Dopytanie " +
                 (interview.turns.filter((turn) => !isBasicQuestion(turn.id)).length + 1) +
                 " z maks. 3"}{" "}
@@ -141,9 +145,11 @@ export function InterviewPanel({
         <>
           <p>
             W dobrowolnej rozmowie opiszesz swoją pracę nad projektem. Lokalna symulacja asystenta
-            uwzględnia Twoje wcześniejsze odpowiedzi i pięć obszarów rozmowy. Obszary już opisane
-            może pominąć. Zada maksymalnie 8 pytań, w tym do 3 dopytań. Po wysłaniu aplikacji
-            rekruter firmy {company} otrzyma raport, jeśli go dołączysz.
+            zada 5 pytań podstawowych. Jeśli wcześniejsza odpowiedź wyjaśni planowany temat,
+            dobierze inne pytanie o umiejętności AI. Asystent sam zdecyduje, czy potrzebne są
+            dodatkowe wyjaśnienia — może zadać od 0 do 3 dopytań. Łącznie rozmowa obejmie od 5 do 8
+            pytań. Po wysłaniu aplikacji rekruter firmy {company} otrzyma raport, jeśli go
+            dołączysz.
           </p>
           {stale && (
             <p>
@@ -151,7 +157,7 @@ export function InterviewPanel({
               aplikację bez raportu.
             </p>
           )}
-          {interview && !question && !stale ? (
+          {interview && !question && !stale && !needsBasics ? (
             <>
               <p>
                 <strong>Rozmowa zakończona.</strong>{" "}

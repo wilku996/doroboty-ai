@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isSituationalQuestion } from "./interview-ai-skills";
 import { reportCoverage, type Interview } from "./interview";
 
 export const letters = ["A", "B", "C", "D"] as const;
@@ -155,6 +156,7 @@ export function proposeTest(report: Interview): TestQuestion[] {
     return [];
   const coverage = reportCoverage(report);
   const replies = report.turns
+    .filter((turn) => !isSituationalQuestion(turn.question))
     .flatMap((turn) => (turn.reply ?? "").split(/(?<=[.!?])\s+|\n+/))
     .filter(
       (reply) => !/nie wiem|nie pamiętam|nie testow|nie sprawdz|hipotetycz|gdybym/i.test(reply),
