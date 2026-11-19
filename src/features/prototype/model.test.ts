@@ -92,6 +92,36 @@ describe("coherent browser scenario", () => {
       ),
     ).toThrow();
   });
+  it("reopens a closed application only for its employer, preserving evidence and history", () => {
+    const closed = transition(
+      as(submitted(), "employer-brightlabs"),
+      {
+        type: "stage",
+        applicationId: "application-anna",
+        stage: "rejected",
+        note: "Closed note",
+      },
+      time,
+    );
+    const action = {
+      type: "stage",
+      applicationId: "application-anna",
+      stage: "reviewed",
+      note: "Reconsider application",
+    } as const;
+    for (const id of ["employer-northstar", "candidate-anna"])
+      expect(() => transition(as(closed, id), action, time)).toThrow();
+    const reopened = stateSchema.parse(
+      JSON.parse(JSON.stringify(transition(closed, action, time))),
+    );
+    const before = closed.applications.at(-1)!;
+    const after = reopened.applications.at(-1)!;
+    expect(after.stage).toBe("reviewed");
+    expect(after.events.slice(0, -1)).toEqual(before.events);
+    expect(after.events.at(-1)).toEqual({ stage: "reviewed", at: time, note: action.note });
+    expect({ ...after, stage: before.stage, events: before.events }).toEqual(before);
+    expect(() => transition(reopened, action, time)).toThrow();
+  });
   it("makes withdrawal terminal and keeps drafts and saved jobs person-specific", () => {
     let s = submitted();
     s = transition(s, { type: "withdraw", applicationId: "application-anna" }, time);

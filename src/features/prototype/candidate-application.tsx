@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { ApplicationRecord } from "./application-record";
 import type { Application } from "./model";
 import { usePrototype } from "./store";
+import { CandidateOptionalTest } from "./optional-test-panel";
 
 export function CandidateApplication({ application }: { application: Application }) {
   const { state, run } = usePrototype();
@@ -84,7 +85,9 @@ export function CandidateApplication({ application }: { application: Application
             </div>
           )
         }
-      />
+      >
+        <CandidateOptionalTest application={application} />
+      </ApplicationRecord>
       <p role="status" className="sr-only">
         {announcement}
       </p>

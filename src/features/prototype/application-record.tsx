@@ -20,6 +20,7 @@ export function ApplicationRecord({
   history,
   statusRef,
   children,
+  report,
   footer,
 }: {
   application: Pick<
@@ -31,6 +32,7 @@ export function ApplicationRecord({
   history: RecordEvent[];
   statusRef?: Ref<HTMLSpanElement>;
   children?: ReactNode;
+  report?: ReactNode;
   footer?: ReactNode;
 }) {
   const candidate = audience === "candidate";
@@ -56,6 +58,7 @@ export function ApplicationRecord({
             {stageLabels[application.stage]}
           </span>
           <MatchScore score={application.score} />
+          {!candidate && <span>Match Score to przykład przypisany do persony.</span>}
           {submitted && (
             <span>
               Złożona:{" "}
@@ -93,6 +96,9 @@ export function ApplicationRecord({
                 </>
               ),
             },
+            ...(!candidate && report
+              ? [{ value: "report", label: "Raport z rozmowy", content: report }]
+              : []),
           ]}
           footer={footer}
         >
@@ -104,14 +110,17 @@ export function ApplicationRecord({
             <ProcessTimeline
               items={history.map((event, index) => ({
                 id: `${index}-${event.at}`,
-                title: stageLabels[event.stage],
+                title:
+                  event.stage === "reviewed" && history[index - 1]?.stage === "rejected"
+                    ? "Ponownie otwarto · W przeglądzie"
+                    : stageLabels[event.stage],
                 dateTime: event.at,
                 content: event.note || undefined,
               }))}
             />
           </section>
           <section className="record-summary" aria-labelledby="summary-heading">
-            <h2 id="summary-heading">Podsumowanie</h2>
+            <h2 id="summary-heading">{report ? "Opis przykładowej persony" : "Podsumowanie"}</h2>
             <p>{application.summary}</p>
           </section>
         </aside>

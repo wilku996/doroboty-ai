@@ -1,0 +1,5 @@
+# Remove the role-expert review section
+
+Remove the recruiter report's “Kontrola przez osobę znającą rolę” heading, status, saved-review display and reviewer/time/corrections form. Keep report evidence, explanation limits and direct optional-test decisions. Retain historical review data/schema for compatible imports rather than deleting saved information. Reuse the existing report layout with no new styling. Update EMP-11 and existing desktop/mobile report journeys to assert removal and retained report content. Run the required verification and a separate review.
+
+Completed and separately reviewed removal of form markup, unused state/imports and current behavior documentation. Existing review records are not mutated. Verification passed 65 unit tests and all five installed-Chrome report journeys at 1280/390/320px, including explicit absence assertions and preserved content after reload. Formatting, kit checks, lint, types, packet validation, build and git diff --check passed. The required shell wrapper still lacks Bash/dirname; its npm equivalent fails only at browser launch because pinned Chromium is unavailable. No dependencies were installed.

@@ -2,6 +2,22 @@ import { z } from "zod";
 import marketplace from "./data/marketplace.json" with { type: "json" };
 import people from "./data/people.json" with { type: "json" };
 import type { JobWithCompany } from "@/features/jobs/types";
+import {
+  optionalTestSchema,
+  testInvitationSchema,
+  testAnswersSchema,
+  proposeTest,
+} from "./optional-test";
+import {
+  completedInterviewSchema,
+  interviewSchema,
+  interviewSources,
+  nextQuestion,
+  prompt,
+  replySchema,
+  reviewSchema,
+  sameSources,
+} from "./interview";
 
 const id = z
   .string()
@@ -100,11 +116,14 @@ export const nextStages: Record<Stage, Stage[]> = {
   interview_invited: ["first_conversation_held", "rejected"],
   first_conversation_held: ["continued", "rejected"],
   continued: ["hired", "rejected"],
-  rejected: [],
+  rejected: ["reviewed"],
   withdrawn: [],
   hired: [],
 };
 const applicationSchema = z.object({
+  optionalTest: optionalTestSchema.optional(),
+  report: completedInterviewSchema.optional(),
+  review: reviewSchema.optional(),
   id,
   candidateId: id,
   jobId: id,
@@ -124,6 +143,7 @@ const applicationSchema = z.object({
     .max(30),
 });
 const draftSchema = z.object({
+  interview: interviewSchema.optional(),
   candidateId: id,
   jobId: id,
   notes: text,
@@ -162,6 +182,17 @@ export const stateSchema = z
     for (const j of s.jobs) if (!companyIds.has(j.companyId)) problem("Unknown job company");
     const keys = new Set<string>();
     for (const a of s.applications) {
+      if (
+        ((a.review || a.optionalTest) && !a.report) ||
+        (a.report && (a.report.sources.cv !== a.cv || a.report.sources.title !== a.jobTitle))
+      )
+        problem("Invalid report sources");
+      if (
+        a.optionalTest?.questions.some(
+          (question) => !a.report?.turns.some((turn) => turn.reply?.includes(question.sourceQuote)),
+        )
+      )
+        problem("Invalid test evidence");
       const key = `${a.candidateId}:${a.jobId}`;
       if (
         !candidates.has(a.candidateId) ||
@@ -202,6 +233,26 @@ export type Action =
   | { type: "profile"; value: z.infer<typeof profileSchema> }
   | { type: "toggle_saved"; jobId: string }
   | { type: "draft"; jobId: string; notes: string; generated: string; answer: string }
+  | { type: "interview_start"; jobId: string; answer: string }
+  | {
+      type: "interview_reply";
+      jobId: string;
+      answer: string;
+      position: number;
+      questionId: string;
+      reply: string | null;
+    }
+  | { type: "report_review"; applicationId: string; review: z.infer<typeof reviewSchema> }
+  | { type: "test_invite"; applicationId: string; value: z.infer<typeof testInvitationSchema> }
+  | { type: "test_skip"; applicationId: string }
+  | { type: "test_decline"; applicationId: string }
+  | {
+      type: "test_answers";
+      applicationId: string;
+      answers: z.infer<typeof testAnswersSchema>;
+      submit: boolean;
+    }
+  | { type: "test_invalidate"; applicationId: string; questionId: string; reason: string }
   | {
       type: "submit";
       jobId: string;
@@ -209,6 +260,7 @@ export type Action =
       generated: string;
       answer: string;
       consent: boolean;
+      includeReport?: boolean;
     }
   | { type: "stage"; applicationId: string; stage: Stage; note: string }
   | { type: "withdraw"; applicationId: string }
@@ -286,9 +338,57 @@ export function transition(
     const index = s.saved.findIndex((x) => x.candidateId === p.id && x.jobId === action.jobId);
     if (index >= 0) s.saved.splice(index, 1);
     else s.saved.push({ candidateId: p.id, jobId: action.jobId });
-  } else if (action.type === "draft") {
+  } else if (
+    action.type === "draft" ||
+    action.type === "interview_start" ||
+    action.type === "interview_reply"
+  ) {
     const p = candidate();
-    const draft = draftSchema.parse({ candidateId: p.id, ...action });
+    const previous = s.drafts.find((x) => x.candidateId === p.id && x.jobId === action.jobId);
+    const draft = draftSchema.parse({
+      notes: "",
+      generated: "",
+      ...previous,
+      candidateId: p.id,
+      ...action,
+    });
+    if (action.type !== "draft") {
+      const job = s.jobs.find((x) => x.id === action.jobId && x.publicationStatus === "published");
+      if (!job || s.applications.some((a) => a.candidateId === p.id && a.jobId === job.id))
+        return fail("Ta aplikacja nie jest dostępna do edycji.");
+      const sources = interviewSources(p.cv, job);
+      if (action.type === "interview_start") {
+        if (!draft.interview || !sameSources(draft.interview.sources, sources))
+          draft.interview = {
+            version: 1,
+            adaptiveFrom: 0,
+            detailFrom: 0,
+            aiFrom: 0,
+            sources,
+            turns: [],
+          };
+        else if (draft.interview.adaptiveFrom === undefined && nextQuestion(draft.interview))
+          draft.interview.adaptiveFrom = draft.interview.turns.length;
+        if (draft.interview.detailFrom === undefined && nextQuestion(draft.interview))
+          draft.interview.detailFrom = draft.interview.turns.length;
+        if (draft.interview.aiFrom === undefined && nextQuestion(draft.interview))
+          draft.interview.aiFrom = draft.interview.turns.length;
+      } else {
+        const i = draft.interview;
+        if (
+          !i ||
+          !sameSources(sources, i.sources) ||
+          action.position !== i.turns.length ||
+          nextQuestion(i)?.id !== action.questionId
+        )
+          return fail("Sprawdź aktualne pytanie i źródła rozmowy.");
+        i.turns.push({
+          question: prompt(i.sources, nextQuestion(i)!),
+          id: action.questionId,
+          reply: action.reply === null ? null : replySchema.parse(action.reply),
+        });
+      }
+    }
     s.drafts = s.drafts.filter((x) => !(x.candidateId === p.id && x.jobId === action.jobId));
     s.drafts.push(draft);
   } else if (action.type === "submit") {
@@ -296,10 +396,19 @@ export function transition(
     const job = s.jobs.find((x) => x.id === action.jobId && x.publicationStatus === "published");
     if (!job) return fail("Oferta nie jest dostępna.");
     if (!action.consent) fail("Zatwierdź treść i zgodę na przesłanie aplikacji.");
+    const report = action.includeReport
+      ? s.drafts.find((d) => d.candidateId === p.id && d.jobId === job.id)?.interview
+      : undefined;
+    if (
+      action.includeReport &&
+      (!report || nextQuestion(report) || !sameSources(report.sources, interviewSources(p.cv, job)))
+    )
+      return fail("Dołącz ukończoną rozmowę opartą na aktualnym CV i ofercie.");
     if (s.applications.some((x) => x.candidateId === p.id && x.jobId === job.id))
       fail("Aplikacja na tę ofertę została już wysłana.");
     s.applications.push(
       applicationSchema.parse({
+        report,
         id: newId,
         candidateId: p.id,
         jobId: job.id,
@@ -317,6 +426,78 @@ export function transition(
       }),
     );
     s.drafts = s.drafts.filter((x) => !(x.candidateId === p.id && x.jobId === job.id));
+  } else if (
+    action.type === "test_invite" ||
+    action.type === "test_skip" ||
+    action.type === "test_invalidate"
+  ) {
+    const p = employer();
+    const a = s.applications.find(
+      (item) => item.id === action.applicationId && item.companyId === p.companyId,
+    );
+    if (!a?.report) return fail("Raport nie jest dostępny.");
+    if (action.type === "test_invalidate") {
+      const question = a.optionalTest?.questions.find((q) => q.id === action.questionId);
+      if (!question) return fail("Nie znaleziono pytania.");
+      question.invalidReason = z.string().trim().min(1).max(2000).parse(action.reason);
+      question.valid = false;
+    } else {
+      if (a.optionalTest && a.optionalTest.status !== "skipped")
+        return fail("Decyzja o zaproszeniu została już zapisana.");
+      if (action.type === "test_skip")
+        a.optionalTest = { status: "skipped", questions: [], answers: [], at: now };
+      else {
+        const value = testInvitationSchema.parse(action.value);
+        const proposals = proposeTest(a.report);
+        if (
+          value.questions.some(
+            (q) =>
+              !q.valid || !proposals.some((p) => p.id === q.id && p.sourceQuote === q.sourceQuote),
+          )
+        )
+          return fail("Pytania muszą wynikać z propozycji do tego raportu.");
+        a.optionalTest = {
+          status: "invited",
+          questions: value.questions,
+          answers: [],
+          at: now,
+        };
+      }
+    }
+  } else if (action.type === "test_answers" || action.type === "test_decline") {
+    const p = candidate();
+    const a = s.applications.find(
+      (item) => item.id === action.applicationId && item.candidateId === p.id,
+    );
+    const test = a?.optionalTest;
+    if (!test || test.status !== "invited") return fail("Nie ma aktywnego zaproszenia do testu.");
+    if (action.type === "test_decline") {
+      test.status = "declined";
+      test.answers = [];
+      test.completedAt = now;
+    } else {
+      test.answers = testAnswersSchema.parse(action.answers);
+      if (
+        new Set(test.answers.map((answer) => answer.questionId)).size !== test.answers.length ||
+        test.answers.some((answer) => !test.questions.some((q) => q.id === answer.questionId))
+      )
+        return fail("Odpowiedzi nie pasują do tego testu.");
+      if (action.submit) {
+        test.answers = test.questions.map((q) => ({
+          questionId: q.id,
+          answer: test.answers.find((a) => a.questionId === q.id)?.answer ?? null,
+        }));
+        test.status = "submitted";
+        test.completedAt = now;
+      }
+    }
+  } else if (action.type === "report_review") {
+    const reviewer = employer();
+    const a = s.applications.find(
+      (x) => x.id === action.applicationId && x.companyId === reviewer.companyId,
+    );
+    if (!a?.report) return fail("Raport nie jest dostępny.");
+    a.review = reviewSchema.parse(action.review);
   } else if (action.type === "stage" || action.type === "withdraw") {
     const application = s.applications.find((x) => x.id === action.applicationId);
     if (!application) return fail("Nie znaleziono aplikacji.");

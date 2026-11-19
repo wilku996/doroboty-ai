@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ApplicationRecord } from "./application-record";
+import { InterviewReport } from "./interview-report";
 import { nextStages, stageLabels, type Application } from "./model";
 import { usePrototype } from "./store";
 
@@ -27,12 +28,26 @@ export function RecruitingApplication({ application }: { application: Applicatio
         application={application}
         companyName={company?.name ?? ""}
         audience="employer"
+        report={
+          application.report ? (
+            <InterviewReport
+              key={application.id}
+              application={application}
+              report={application.report}
+            />
+          ) : undefined
+        }
         history={application.events}
         statusRef={statusRef}
         footer={
           availableStages.length > 0 ? (
             <>
-              <p className="record-caption">Notatka zapisze się w historii po zmianie etapu.</p>
+              <p className="record-caption">
+                {application.stage === "rejected"
+                  ? "Ponowne otwarcie przywróci etap „W przeglądzie”. "
+                  : ""}
+                Notatka zapisze się w historii po zmianie etapu.
+              </p>
               <div className="record-actions">
                 {availableStages.map((stage) => (
                   <Button
@@ -41,19 +56,26 @@ export function RecruitingApplication({ application }: { application: Applicatio
                     onClick={() => {
                       if (run({ type: "stage", applicationId: application.id, stage, note })) {
                         setNote("");
-                        setAnnouncement(`Zapisano etap: ${stageLabels[stage]}.`);
+                        setAnnouncement(
+                          application.stage === "rejected"
+                            ? "Ponownie otwarto proces. Etap: W przeglądzie."
+                            : `Zapisano etap: ${stageLabels[stage]}.`,
+                        );
                         pendingFocus.current = true;
                       }
                     }}
                   >
-                    {stageLabels[stage]}
+                    {application.stage === "rejected" ? "Otwórz ponownie" : stageLabels[stage]}
                   </Button>
                 ))}
               </div>
             </>
           ) : (
             <p className="record-caption">
-              {stageLabels[application.stage]}. Brak kolejnych działań w tym procesie.
+              {stageLabels[application.stage]}.{" "}
+              {application.report
+                ? "Raport i decyzja o dodatkowym teście są dostępne w zakładce „Raport z rozmowy”."
+                : "Brak kolejnych działań w tym procesie."}
             </p>
           )
         }

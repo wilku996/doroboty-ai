@@ -299,3 +299,44 @@
   background: var(--gui-color-1);
   color: var(--gui-text);
 }
+.interview-panel,
+.interview-report,
+.interview-review,
+.interview-report section {
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.interview-panel > button,
+.interview-review > button {
+  justify-self: start;
+}
+.interview-panel summary,
+.interview-report summary {
+  cursor: pointer;
+  text-decoration: underline;
+}
+.interview-panel details p,
+.interview-report details p {
+  margin-top: 0.75rem;
+  white-space: pre-wrap;
+}
+.interview-report section {
+  padding-block: 1rem;
+  border-top: 1px solid var(--gui-text);
+}
+.interview-report blockquote {
+  border-inline-start: 3px solid var(--gui-color-1);
+  padding-inline-start: 1rem;
+  white-space: pre-wrap;
+}
+.interview-report h4 {
+  font-size: 1.4rem;
+}
+.interview-report h5 {
+  font-size: 1.15rem;
+}
+.record-tabs:has(.record-tab:nth-child(3)) {
+  flex-wrap: wrap;
+}

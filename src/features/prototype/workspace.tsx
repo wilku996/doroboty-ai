@@ -13,6 +13,8 @@ import { usePrototype } from "./store";
 import { currentPerson, publishedJobs, stageLabels, MIN_APPLICATION_ANSWER_LENGTH } from "./model";
 import { PageTitle, Empty, NotFound, Notice } from "./shell";
 import { CvAttachment } from "./cv-attachment";
+import { InterviewPanel } from "./interview-panel";
+import { interviewSources, nextQuestion, sameSources } from "./interview";
 import { MatchScore } from "./match-score";
 import { RecruitingApplication } from "./recruiting-application";
 import { CandidateApplication } from "./candidate-application";
@@ -231,6 +233,11 @@ export function SavedPage() {
 }
 export function ApplyPage() {
   const { slug } = useParams();
+  const { state } = usePrototype();
+  return <ApplyForm key={state.activePersonId + ":" + slug} />;
+}
+function ApplyForm() {
+  const { slug } = useParams();
   const { state, run } = usePrototype();
   const person = currentPerson(state)!;
   const navigate = useNavigate();
@@ -240,6 +247,15 @@ export function ApplyPage() {
   const generated = draft?.generated ?? "";
   const [answer, setAnswer] = useState(draft?.answer ?? "");
   const [consent, setConsent] = useState(false);
+  const [attach, setAttach] = useState(false);
+  const sources = job && interviewSources(person.cv, job);
+  const includeReport = Boolean(
+    attach &&
+    sources &&
+    draft?.interview &&
+    sameSources(draft.interview.sources, sources) &&
+    !nextQuestion(draft.interview),
+  );
   const [message, setMessage] = useState("");
   const [attempted, setAttempted] = useState(false);
   const answerInput = useRef<HTMLTextAreaElement>(null);
@@ -281,7 +297,7 @@ export function ApplyPage() {
       document.getElementById("application-consent")?.focus();
       return;
     }
-    if (run({ type: "submit", jobId: job!.id, notes, generated, answer, consent })) {
+    if (run({ type: "submit", jobId: job!.id, notes, generated, answer, consent, includeReport })) {
       submittedOnce.current = true;
       setSubmitted(true);
       if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -322,6 +338,20 @@ export function ApplyPage() {
               contextLabel="CV z Twojego profilu"
             />
           </section>
+          {!submitted && sources && (
+            <InterviewPanel
+              jobId={job.id}
+              company={job.company.name}
+              sources={sources}
+              interview={draft?.interview}
+              applicationAnswer={answer}
+              attached={includeReport}
+              onAttach={(value) => {
+                setAttach(value);
+                setConsent(false);
+              }}
+            />
+          )}
           <section
             className="application-form-section application-answer"
             aria-label="Odpowiedź do aplikacji"
@@ -353,6 +383,13 @@ export function ApplyPage() {
             </p>
           </section>
           <div className="application-form-section application-submit">
+            {!submitted && (
+              <p className="application-help">
+                {includeReport
+                  ? "Wyślesz aplikację z raportem z rozmowy."
+                  : "Wyślesz aplikację bez raportu z rozmowy."}
+              </p>
+            )}
             <label className="application-consent">
               <Checkbox
                 id="application-consent"
@@ -451,6 +488,9 @@ export function ApplicationsPage({ employer = false }: { employer?: boolean }) {
                       : state.companies.find((x) => x.id === a.companyId)?.name}
                   </p>
                   <p>{stageLabels[a.stage]}</p>
+                  {!employer && a.optionalTest?.status === "invited" && (
+                    <p>Zaproszenie do dobrowolnego testu A–D — otwórz aplikację.</p>
+                  )}
                 </div>
                 <MatchScore score={a.score} />
               </div>
