@@ -2,16 +2,28 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { verifyPacket } from "./verify-participant.mjs";
-const root = process.cwd();
+
+function resolveOutputPath(target) {
+  try {
+    return fs.realpathSync(target);
+  } catch (error) {
+    const parent = path.dirname(target);
+    if (error.code !== "ENOENT" || parent === target) throw error;
+    return path.join(resolveOutputPath(parent), path.basename(target));
+  }
+}
+
+function isWithin(parent, child) {
+  const relative = path.relative(parent, child);
+  return !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`);
+}
+
+const root = fs.realpathSync(process.cwd());
 const argument = process.argv[2];
 if (!argument || !path.isAbsolute(argument))
   throw new Error("Pass an absolute output directory outside the repository.");
-const target = path.resolve(argument);
-const relative = path.relative(root, target);
-if (
-  !(relative === ".." || relative.startsWith(`..${path.sep}`)) ||
-  root.startsWith(target + path.sep)
-)
+const target = resolveOutputPath(path.resolve(argument));
+if (isWithin(root, target) || isWithin(target, root))
   throw new Error("Output must be outside the source repository and not its ancestor.");
 if (fs.existsSync(target) && fs.readdirSync(target).length)
   throw new Error("Output directory must be empty; no existing files will be removed.");

@@ -13,3 +13,7 @@ The Windows session lacks Bash and provisioned Playwright Chromium. The standard
 Packaging a clean source snapshot to a destination on the same volume passed and produced 227 baseline files, excluding Git history, instructor sources and the audit. Direct packaging from `D:` to the temporary directory on `C:` was rejected by the path check.
 
 The readiness report is generated and validated by its renderer. Its specific path is excluded from Prettier so formatting does not rewrite the embedded audit state.
+
+## Baseline ZIP follow-up
+
+Reassess preparation for the committed v2.0 baseline ZIP. Verify the exact archive that will be handed to participants, install and run a fresh extraction, and retain the prior audit results in the HTML. Record local evidence and open distribution decisions. Review the product behavior register without changing it because this follow-up does not change the application.
