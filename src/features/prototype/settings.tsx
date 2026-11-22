@@ -18,6 +18,7 @@ export function downloadText(name: string, text: string, type = "application/jso
 export function SettingsPage() {
   const { state, reset, importState, original } = usePrototype();
   const [pending, setPending] = useState<"reset" | "import" | null>(null);
+  const [saving, setSaving] = useState(false);
   const [raw, setRaw] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -37,13 +38,15 @@ export function SettingsPage() {
       setError("Nie udało się odczytać pliku.");
     }
   }
-  function confirm() {
+  async function confirm() {
+    setSaving(true);
+    setMessage("");
     if (pending === "reset") {
-      reset();
-      setMessage("Przywrócono scenariusz początkowy.");
-    } else if (importState(raw)) {
+      if (await reset()) setMessage("Przywrócono scenariusz początkowy.");
+    } else if (await importState(raw)) {
       setMessage("Dane zostały zaimportowane.");
     }
+    setSaving(false);
     setPending(null);
   }
   return (
@@ -108,7 +111,7 @@ export function SettingsPage() {
         title={pending === "reset" ? "Zresetować scenariusz?" : "Zastąpić dane scenariusza?"}
         description="Ta operacja zastąpi lokalne zmiany. Możesz najpierw wyeksportować dane."
         label={pending === "reset" ? "Resetuj" : "Importuj"}
-        pending={false}
+        pending={saving}
         onConfirm={confirm}
       />
     </>

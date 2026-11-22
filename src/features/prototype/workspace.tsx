@@ -51,8 +51,10 @@ export function PersonPicker() {
             <p className="my-4 text-muted-foreground">{person.headline}</p>
             <Button
               variant="outline"
-              onClick={() => {
-                run({ type: "select_person", id: person.id });
+              onClick={async () => {
+                const pickerLocation = window.location.hash;
+                if (!(await run({ type: "select_person", id: person.id }))) return;
+                if (window.location.hash !== pickerLocation) return;
                 navigate(
                   person.role === "candidate"
                     ? (safeNext ?? "/app")
@@ -145,11 +147,11 @@ export function ProfilePage({ preview = false }: { preview?: boolean }) {
   const { state, run } = usePrototype();
   const person = currentPerson(state)!;
   const [message, setMessage] = useState("");
-  function save(e: FormEvent<HTMLFormElement>) {
+  async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     if (
-      run({
+      await run({
         type: "profile",
         value: {
           name: String(data.get("name")),
@@ -285,7 +287,7 @@ function ApplyForm() {
         </Link>
       </section>
     );
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     if (submittedOnce.current) return;
     setAttempted(true);
@@ -297,15 +299,25 @@ function ApplyForm() {
       document.getElementById("application-consent")?.focus();
       return;
     }
-    if (run({ type: "submit", jobId: job!.id, notes, generated, answer, consent, includeReport })) {
-      submittedOnce.current = true;
+    submittedOnce.current = true;
+    if (
+      await run({
+        type: "submit",
+        jobId: job!.id,
+        notes,
+        generated,
+        answer,
+        consent,
+        includeReport,
+      })
+    ) {
       setSubmitted(true);
       if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         const rect = sendButton.current?.getBoundingClientRect();
         if (rect)
           setConfettiOrigin({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
       }
-    }
+    } else submittedOnce.current = false;
   }
   return (
     <section className="pp-container application-page">
@@ -423,8 +435,8 @@ function ApplyForm() {
                 type="button"
                 disabled={submitted}
                 variant="outline"
-                onClick={() => {
-                  if (run({ type: "draft", jobId: job.id, notes, generated, answer }))
+                onClick={async () => {
+                  if (await run({ type: "draft", jobId: job.id, notes, generated, answer }))
                     setMessage("Szkic został zapisany.");
                 }}
               >

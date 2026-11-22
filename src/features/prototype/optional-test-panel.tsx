@@ -238,9 +238,9 @@ export function OptionalTestPanel({ application }: { application: Application })
                     questions: questions.filter((q) => included.includes(q.id)),
                   }).success
                 }
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    run({
+                    await run({
                       type: "test_invite",
                       applicationId: application.id,
                       value: {
@@ -256,8 +256,8 @@ export function OptionalTestPanel({ application }: { application: Application })
             )}
             <Button
               variant="outline"
-              onClick={() => {
-                if (run({ type: "test_skip", applicationId: application.id }))
+              onClick={async () => {
+                if (await run({ type: "test_skip", applicationId: application.id }))
                   setNotice("Zapisano decyzję: dalej bez testu.");
               }}
             >

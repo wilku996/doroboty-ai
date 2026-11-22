@@ -48,18 +48,18 @@ export function InterviewPanel({
     (active || !trigger.current ? heading.current : trigger.current)?.focus();
     pendingFocus.current = false;
   }, [active, open, interview]);
-  function start() {
-    if (run({ type: "interview_start", jobId, answer: applicationAnswer })) {
+  async function start() {
+    if (await run({ type: "interview_start", jobId, answer: applicationAnswer })) {
       pendingFocus.current = true;
       setOpen(true);
       if (stale || !interview) setReply("");
       onAttach(false);
     }
   }
-  function record(value: string | null) {
+  async function record(value: string | null) {
     if (!interview || !question) return;
     if (
-      run({
+      await run({
         type: "interview_reply",
         jobId,
         answer: applicationAnswer,

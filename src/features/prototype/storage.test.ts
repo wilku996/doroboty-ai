@@ -4,25 +4,19 @@ import {
   MAX_IMPORT_BYTES,
   parseState,
   readState,
-  saveState,
+  persistState,
   serializeState,
   STORAGE_KEY,
 } from "./storage";
 function memory(raw: string | null = null) {
-  const values = new Map(raw === null ? [] : [[STORAGE_KEY, raw]]);
   return {
-    getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => {
-      values.set(key, value);
-    },
+    getItem: (key: string) => (key === STORAGE_KEY ? raw : null),
   };
 }
 describe("browser persistence and recovery", () => {
   it("round-trips a complete valid scenario", () => {
-    const storage = memory();
     const s = initialState();
-    saveState(storage, s);
-    expect(readState(storage).state).toEqual(s);
+    expect(readState(memory(serializeState(s))).state).toEqual(s);
     expect(parseState(serializeState(s))).toEqual(s);
   });
   it("protects incompatible/corrupt original saves", () => {
@@ -41,20 +35,13 @@ describe("browser persistence and recovery", () => {
         getItem() {
           throw new Error("Denied");
         },
-        setItem() {},
       }).blocked,
     ).toBe(true);
   });
-  it("reports quota/write failure without altering the original", () => {
-    const old = "old";
-    const storage = {
-      getItem: () => old,
-      setItem() {
-        throw new Error("QuotaExceededError");
-      },
-    };
-    expect(() => saveState(storage, initialState())).toThrow("Wyeksportuj");
-    expect(storage.getItem()).toBe(old);
+  it("rejects oversized writes before opening storage", async () => {
+    const state = initialState();
+    state.people[0].bio = "x".repeat(MAX_IMPORT_BYTES);
+    await expect(persistState(state, null)).rejects.toThrow("Wyeksportuj");
   });
   it("rejects invalid references and oversized files", () => {
     const s = initialState();

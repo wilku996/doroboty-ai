@@ -5,6 +5,7 @@ for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 880 });
     await page.goto("/#/auth/sign-in");
     await page.getByRole("button", { name: "Wejdź jako Anna Kowalska" }).click();
+    await expect(page).toHaveURL(/#\/app$/);
     await page.goto("/#/aplikuj/ai-product-manager");
     const applicationAnswer = "Pracowałam przy tworzeniu asystenta do zgłoszeń.";
     await page.getByLabel("Dlaczego pasujesz do tej roli?").fill(applicationAnswer);
@@ -17,6 +18,7 @@ for (const width of [1280, 390, 320]) {
     await page.screenshot({ path: `artifacts/goal-question-${width}.png`, fullPage: true });
     await page.getByLabel("Twoja odpowiedź").fill("Zespół chciał skrócić czas obsługi zgłoszeń.");
     await page.getByRole("button", { name: "Zatwierdź odpowiedź" }).press("Enter");
+    await expect(page.getByText(/Pytanie podstawowe 2 z 5/)).toBeVisible();
     await page.reload();
     await expect(page.getByLabel("Dlaczego pasujesz do tej roli?")).toHaveValue(applicationAnswer);
     await page.getByRole("button", { name: "Wznów rozmowę" }).press("Enter");
@@ -25,8 +27,10 @@ for (const width of [1280, 390, 320]) {
     ).toBeFocused();
     await page.getByLabel("Twoja odpowiedź").fill("Przygotowałam formularz przyjmowania zgłoszeń.");
     await page.getByRole("button", { name: "Zatwierdź odpowiedź" }).click();
-    for (let n = 0; n < 3; n++)
+    for (let question = 3; question <= 5; question++) {
+      await expect(page.getByText(`Pytanie podstawowe ${question} z 5`)).toBeVisible();
       await page.getByRole("button", { name: "Pomiń pytanie" }).press("Enter");
+    }
     await page
       .getByRole("checkbox", { name: "Dołącz raport z rozmowy do aplikacji", exact: true })
       .check();
@@ -37,6 +41,7 @@ for (const width of [1280, 390, 320]) {
     const id = page.url().split("/").pop();
     await page.goto("/#/auth/sign-in");
     await page.getByRole("button", { name: "Wejdź jako Karolina Wiśniewska" }).click();
+    await expect(page).toHaveURL(/#\/app\/oferty$/);
     await page.goto("/#/app/kandydaci/" + id);
     await page.getByRole("tab", { name: "CV", exact: true }).focus();
     await page.keyboard.press("ArrowRight");
@@ -75,6 +80,7 @@ for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 880 });
     await page.goto("/#/auth/sign-in");
     await page.getByRole("button", { name: "Wejdź jako Anna Kowalska" }).click();
+    await expect(page).toHaveURL(/#\/app$/);
     await page.goto("/#/aplikuj/ai-product-manager");
     await page
       .getByLabel("Dlaczego pasujesz do tej roli?")
@@ -145,6 +151,7 @@ for (const width of [1280, 390]) {
     const id = page.url().split("/").pop();
     await page.goto("/#/auth/sign-in");
     await page.getByRole("button", { name: "Wejdź jako Karolina Wiśniewska" }).click();
+    await expect(page).toHaveURL(/#\/app\/oferty$/);
     await page.goto("/#/app/kandydaci/" + id);
     await page.getByRole("tab", { name: "Raport z rozmowy" }).click();
     await expect(

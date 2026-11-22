@@ -1,55 +1,57 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { initialState, transition, type Action, type State } from "./model";
-import { parseState, readState, saveState, type StoragePort } from "./storage";
-function browserStorage(): StoragePort | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
-function useStore() {
-  const [loaded] = useState(() => readState(browserStorage()));
+import {
+  type loadScenario,
+  parseState,
+  persistState,
+  removeMigratedSave,
+  ScenarioWriteConflict,
+} from "./storage";
+export type LoadedScenario = Awaited<ReturnType<typeof loadScenario>>;
+
+function useStore(loaded: LoadedScenario) {
   const [state, setState] = useState(loaded.state);
   const [issue, setIssue] = useState(loaded.issue);
   const [error, setError] = useState("");
-  const [blocked, setBlocked] = useState(loaded.blocked);
+  const blocked = useRef(loaded.blocked);
   const latest = useRef(state);
-  function commit(next: State, replace = false) {
-    latest.current = next;
-    setState(next);
-    setError("");
-    if (blocked && !replace) return;
-    try {
-      saveState(browserStorage(), next);
-      setIssue("");
-      if (replace) setBlocked(false);
-    } catch (e) {
-      setIssue((e as Error).message);
-    }
-  }
-  function run(action: Action) {
-    try {
-      commit(transition(latest.current, action));
-      return true;
-    } catch (e) {
-      setError(
-        e instanceof Error && e.name !== "ZodError"
-          ? e.message
-          : "Sprawdź poprawność i długość wprowadzonych danych.",
-      );
-      return false;
-    }
-  }
-  function importState(raw: string) {
-    try {
-      const next = parseState(raw);
-      commit(next, true);
-      return true;
-    } catch (e) {
-      setError((e as Error).message);
-      return false;
-    }
+  const stored = useRef(loaded.saved);
+  const legacyRaw = useRef(loaded.legacyRaw);
+  const pending = useRef(Promise.resolve());
+
+  function commit(change: (current: State) => State, replace = false) {
+    const operation = pending.current.then(async () => {
+      try {
+        const next = change(latest.current);
+        if (!blocked.current || replace) {
+          try {
+            stored.current = await persistState(next, stored.current);
+            if (legacyRaw.current !== null) {
+              removeMigratedSave(legacyRaw.current);
+              legacyRaw.current = null;
+            }
+            blocked.current = false;
+            setIssue("");
+          } catch (error) {
+            if (error instanceof ScenarioWriteConflict) throw error;
+            setIssue((error as Error).message);
+          }
+        }
+        latest.current = next;
+        setState(next);
+        setError("");
+        return true;
+      } catch (error) {
+        setError(
+          error instanceof Error && error.name !== "ZodError"
+            ? error.message
+            : "Sprawdź poprawność i długość wprowadzonych danych.",
+        );
+        return false;
+      }
+    });
+    pending.current = operation.then(() => {});
+    return operation;
   }
   useEffect(() => {
     document.documentElement.classList.remove("dark");
@@ -58,18 +60,23 @@ function useStore() {
     state,
     issue,
     error,
-    blocked,
     original: loaded.original,
-    run,
-    importState,
+    run: (action: Action) => commit((current) => transition(current, action)),
+    importState: (raw: string) => commit(() => parseState(raw), true),
     clearError: () => setError(""),
-    reset: () => commit(initialState(), true),
+    reset: () => commit(initialState, true),
   };
 }
 type Store = ReturnType<typeof useStore>;
 const Context = createContext<Store | null>(null);
-export function PrototypeProvider({ children }: { children: ReactNode }) {
-  const store = useStore();
+export function PrototypeProvider({
+  loaded,
+  children,
+}: {
+  loaded: LoadedScenario;
+  children: ReactNode;
+}) {
+  const store = useStore(loaded);
   return <Context.Provider value={store}>{children}</Context.Provider>;
 }
 export function usePrototype() {

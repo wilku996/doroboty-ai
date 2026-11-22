@@ -3,9 +3,11 @@ import AxeBuilder from "@axe-core/playwright";
 import { initialState } from "../../src/features/prototype/model";
 import { STORAGE_KEY } from "../../src/features/prototype/storage";
 import { readFile } from "node:fs/promises";
+import { readScenario } from "./scenario-storage";
 async function choose(page: Page, name: string) {
   await page.goto("/#/auth/sign-in");
   await page.getByRole("button", { name: `Wejdź jako ${name}`, exact: true }).click();
+  await expect(page).toHaveURL(/#\/app(?:\/|$)/);
 }
 async function application(page: Page) {
   await choose(page, "Anna Kowalska");
@@ -50,6 +52,7 @@ for (const [name, filename] of [
     expect(await readFile((await download.path())!)).toEqual(bytes);
     await page.getByLabel("Imię i nazwisko").fill(`Zmieniony profil ${name}`);
     await page.getByRole("button", { name: "Zapisz profil", exact: true }).click();
+    await expect(page.getByText("Profil został zapisany.")).toBeVisible();
     await page.reload();
     await expect(downloadLink).toHaveAttribute("href", href!);
     await page.setViewportSize({ width: 375, height: 812 });
@@ -129,9 +132,11 @@ test("published job → saved offer/draft → submitted application → employer
   await answer.fill(draftAnswer);
   await page.getByRole("button", { name: "Zapisz szkic" }).click();
   await expect(page.getByRole("status")).toHaveText("Szkic został zapisany.");
-  expect(
-    await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).drafts.at(-1), STORAGE_KEY),
-  ).toMatchObject({ notes: "", generated: "", answer: draftAnswer });
+  expect((await readScenario(page)).drafts.at(-1)).toMatchObject({
+    notes: "",
+    generated: "",
+    answer: draftAnswer,
+  });
   await page.reload();
   await expect(answer).toHaveValue(draftAnswer);
   await page.getByRole("checkbox").check();
@@ -150,6 +155,7 @@ test("published job → saved offer/draft → submitted application → employer
   await page.getByRole("button", { name: "W przeglądzie", exact: true }).click();
   for (const label of ["Zaproszenie na rozmowę", "Pierwsza rozmowa odbyta", "Kolejny etap"])
     await page.getByRole("button", { name: label, exact: true }).click();
+  await expect(page.getByRole("button", { name: "Zatrudnienie", exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("button", { name: "Zatrudnienie", exact: true })).toBeVisible();
   await choose(page, "Anna Kowalska");
@@ -178,6 +184,7 @@ test("candidate withdrawal is confirmed and terminal", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Wycofaj aplikację", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Wycofaj aplikację", exact: true }).click();
   await page.getByRole("button", { name: "Potwierdź wycofanie", exact: true }).click();
+  await expect(page.locator(".record-stage")).toHaveText("Wycofana");
   await page.reload();
   await expect(page.locator(".record-stage")).toHaveText("Wycofana");
 });
@@ -195,7 +202,7 @@ test("invalid import preserves state, valid import replaces state, reset asks fo
 }) => {
   await choose(page, "Anna Kowalska");
   await page.goto("/#/app/settings");
-  const before = await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY);
+  const before = await readScenario(page);
   await page.getByLabel("Importuj plik scenariusza").setInputFiles({
     name: "invalid.json",
     mimeType: "application/json",
@@ -203,7 +210,7 @@ test("invalid import preserves state, valid import replaces state, reset asks fo
   });
   await page.getByRole("button", { name: "Importuj", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("Nieprawidłowy plik");
-  expect(await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY)).toBe(before);
+  expect(await readScenario(page)).toEqual(before);
   const imported = initialState();
   imported.activePersonId = "candidate-anna";
   imported.people[0].name = "Zaimportowana Anna";
@@ -222,12 +229,90 @@ test("invalid import preserves state, valid import replaces state, reset asks fo
   await expect(page.getByText("Zaimportowana Anna", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "Resetuj scenariusz", exact: true }).click();
   await page.getByRole("button", { name: "Resetuj", exact: true }).click();
-  expect(
-    await page.evaluate(
-      (key) => JSON.parse(localStorage.getItem(key)!).activePersonId,
-      STORAGE_KEY,
-    ),
-  ).toBe(null);
+  await expect.poll(async () => (await readScenario(page)).activePersonId).toBeNull();
+});
+test("a stale tab cannot overwrite a newer scenario with an edit, import or reset", async ({
+  page,
+  context,
+}) => {
+  await choose(page, "Anna Kowalska");
+  await page.goto("/#/app/profil");
+  const stale = await context.newPage();
+  await stale.goto("/#/app/profil");
+  await stale.setViewportSize({ width: 320, height: 780 });
+
+  const save = (tab: Page) => tab.getByRole("button", { name: "Zapisz profil", exact: true });
+  const name = (tab: Page) => tab.getByLabel("Imię i nazwisko");
+  await expect(name(stale)).toHaveValue("Anna Kowalska");
+  await name(page).fill("Anna Aktualny Profil");
+  await save(page).click();
+  await expect(page.getByRole("status")).toHaveText("Profil został zapisany.");
+  const latest = await readScenario(page);
+
+  const conflict = stale.getByRole("alert");
+  await name(stale).fill("Anna Niezapisana Zmiana");
+  await save(stale).focus();
+  await stale.keyboard.press("Enter");
+  await expect(conflict).toContainText("Inna karta zapisała zmiany");
+  await expect(name(stale)).toHaveValue("Anna Niezapisana Zmiana");
+  await expect(save(stale)).toBeFocused();
+  expect(await stale.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  await stale.goto("/#/oferty/ai-product-manager");
+  const bookmark = stale.getByRole("button", { name: "Zapisz ofertę", exact: true });
+  await bookmark.click();
+  await expect(conflict).toContainText("Inna karta zapisała zmiany");
+  await expect(bookmark).toHaveAttribute("aria-pressed", "false");
+
+  await stale.goto("/#/app/settings");
+  const replacement = initialState();
+  replacement.activePersonId = "candidate-anna";
+  await stale.getByLabel("Importuj plik scenariusza").setInputFiles({
+    name: "scenario.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(replacement)),
+  });
+  await stale.getByRole("button", { name: "Importuj", exact: true }).click();
+  await expect(conflict).toContainText("Inna karta zapisała zmiany");
+  await expect(stale.getByText("Dane zostały zaimportowane.")).toHaveCount(0);
+  await stale.getByRole("button", { name: "Resetuj scenariusz", exact: true }).click();
+  await stale.getByRole("button", { name: "Resetuj", exact: true }).click();
+  await expect(conflict).toContainText("Inna karta zapisała zmiany");
+  await expect(stale.getByText("Przywrócono scenariusz początkowy.")).toHaveCount(0);
+  expect(await readScenario(stale)).toEqual(latest);
+
+  await stale.reload();
+  await stale.goto("/#/oferty/ai-product-manager");
+  await bookmark.click();
+  await expect(bookmark).toHaveAttribute("aria-pressed", "true");
+  await stale.goto("/#/app/profil");
+  await expect(name(stale)).toHaveValue("Anna Aktualny Profil");
+});
+test("two tabs trying to save the same scenario at once accept just one write", async ({
+  page,
+  context,
+}) => {
+  await choose(page, "Anna Kowalska");
+  await page.goto("/#/app/profil");
+  const second = await context.newPage();
+  await second.goto("/#/app/profil");
+  const tabs = [page, second];
+  const names = ["Anna Pierwsza Karta", "Anna Druga Karta"];
+  await Promise.all(tabs.map((tab, i) => tab.getByLabel("Imię i nazwisko").fill(names[i])));
+  await Promise.all(
+    tabs.map((tab) => tab.getByRole("button", { name: "Zapisz profil", exact: true }).click()),
+  );
+  const written = await Promise.all(
+    tabs.map(async (tab) => {
+      const success = tab.getByText("Profil został zapisany.", { exact: true });
+      const conflict = tab.getByRole("alert").filter({ hasText: "Inna karta zapisała zmiany" });
+      await expect(success.or(conflict)).toBeVisible();
+      return success.isVisible();
+    }),
+  );
+  expect(written.filter(Boolean)).toHaveLength(1);
+  await page.reload();
+  await expect(page.getByLabel("Imię i nazwisko")).toHaveValue(names[written.indexOf(true)]);
 });
 test("unreadable save stays untouched while the user works in memory", async ({ page }) => {
   await page.goto("/");
@@ -240,12 +325,18 @@ test("unreadable save stays untouched while the user works in memory", async ({ 
   );
   await page.goto("/#/app/settings");
   await expect(page.getByRole("button", { name: "Pobierz poprzedni zapis" })).toBeVisible();
+  await page.getByRole("button", { name: "Resetuj scenariusz", exact: true }).click();
+  await page.getByRole("button", { name: "Resetuj", exact: true }).click();
+  await expect.poll(async () => (await readScenario(page)).activePersonId).toBeNull();
+  await expect
+    .poll(() => page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY))
+    .toBeNull();
 });
 test("storage denial keeps the app usable and offers export", async ({ page }) => {
   await page.addInitScript(() => {
-    Object.defineProperty(Storage.prototype, "setItem", {
+    Object.defineProperty(IDBObjectStore.prototype, "put", {
       value() {
-        throw new Error("Storage denied");
+        this.transaction.abort();
       },
     });
   });
@@ -405,12 +496,7 @@ for (const width of [1440, 375]) {
     await page.keyboard.press("Tab");
     await page.keyboard.press("Enter");
     await expect(page.getByRole("status")).toHaveText("Szkic został zapisany.");
-    expect(
-      await page.evaluate(
-        (key) => JSON.parse(localStorage.getItem(key)!).drafts.at(-1),
-        STORAGE_KEY,
-      ),
-    ).toEqual({ ...draft, answer: editedAnswer });
+    expect((await readScenario(page)).drafts.at(-1)).toEqual({ ...draft, answer: editedAnswer });
     await page.reload();
     await expect(answer).toHaveValue(editedAnswer);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
@@ -426,12 +512,7 @@ for (const width of [1440, 375]) {
     await page.keyboard.press("Tab");
     await page.keyboard.press("Enter");
     await expect(page.getByText("Aplikacja została wysłana.", { exact: false })).toBeVisible();
-    expect(
-      await page.evaluate(
-        (key) => JSON.parse(localStorage.getItem(key)!).applications.at(-1),
-        STORAGE_KEY,
-      ),
-    ).toMatchObject({
+    expect((await readScenario(page)).applications.at(-1)).toMatchObject({
       sourceNotes: draft.notes,
       generatedAnswer: draft.generated,
       answer: editedAnswer,
@@ -463,9 +544,9 @@ test("legacy dark preference keeps scenario data and renders the light interface
   await expect(page.locator("html")).not.toHaveClass(/dark/);
   await expect(page.locator("body")).toHaveCSS("background-color", "rgb(244, 244, 240)");
   await page.getByRole("button", { name: "Zapisz profil", exact: true }).click();
-  expect(
-    await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!).theme, STORAGE_KEY),
-  ).toBeUndefined();
+  await expect(page.getByText("Profil został zapisany.")).toBeVisible();
+  expect((await readScenario(page)).theme).toBeUndefined();
+  expect(await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY)).toBeNull();
 });
 
 test("Poster People offer keeps desktop conditions/actions and places them before mobile reading", async ({
@@ -835,6 +916,7 @@ for (const width of [1280, 390]) {
       /^\.?\/cv\/anna-kowalska-cv-v1\.pdf$/,
     );
     await form.getByRole("button", { name: "Zapisz szkic", exact: true }).click();
+    await expect(page.getByText("Szkic został zapisany.")).toBeVisible();
     await page.reload();
     await expect(answer).toHaveValue(text);
     await expect(form.getByRole("checkbox")).not.toBeChecked();
@@ -881,14 +963,10 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
     }
     await page.locator("form").dispatchEvent("submit");
     expect(
-      await page.evaluate(
-        (key) =>
-          JSON.parse(localStorage.getItem(key)!).applications.filter(
-            (item: { candidateId: string }) => item.candidateId === "candidate-anna",
-          ).length,
-        STORAGE_KEY,
+      (await readScenario(page)).applications.filter(
+        (item) => item.candidateId === "candidate-anna",
       ),
-    ).toBe(1);
+    ).toHaveLength(1);
     await page.clock.fastForward(reducedMotion === "reduce" ? 1 : 1000);
     await expect(page).toHaveURL(/#\/app\/aplikacje\?wyslano=1$/);
     await expect(page.locator(".confetti-burst")).toHaveCount(0);

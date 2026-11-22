@@ -1,5 +1,5 @@
 import { HashRouter, Routes, Route, Navigate } from "react-router";
-import { PrototypeProvider } from "./store";
+import { PrototypeProvider, type LoadedScenario } from "./store";
 import { Shell, NotFound } from "./shell";
 import HomePage from "./home";
 import MethodologyPage from "./methodology";
@@ -147,9 +147,9 @@ function AppRoutes() {
     </Routes>
   );
 }
-export function App() {
+export function App({ loaded }: { loaded: LoadedScenario }) {
   return (
-    <PrototypeProvider>
+    <PrototypeProvider loaded={loaded}>
       <HashRouter>
         <AppRoutes />
       </HashRouter>

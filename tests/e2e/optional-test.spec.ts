@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { initialState, transition } from "../../src/features/prototype/model";
 import { nextQuestion } from "../../src/features/prototype/interview";
 import { STORAGE_KEY } from "../../src/features/prototype/storage";
+import { readScenario } from "./scenario-storage";
 
 function scenario() {
   let state = transition(initialState(), { type: "select_person", id: "candidate-anna" });
@@ -78,39 +79,37 @@ for (const width of [1280, 390])
     await panel.getByRole("combobox", { name: "Klucz · pytanie 1", exact: true }).selectOption("B");
     await panel.getByRole("checkbox", { name: "Uwzględnij pytanie 2 w teście" }).uncheck();
     expect(
-      await page.evaluate(
-        ({ key, id }) =>
-          JSON.parse(localStorage.getItem(key)!).applications.find(
-            (a: { id: string }) => a.id === id,
-          ).optionalTest,
-        { key: STORAGE_KEY, id: applicationId },
-      ),
+      (await readScenario(page)).applications.find((item) => item.id === applicationId)
+        ?.optionalTest,
     ).toBeUndefined();
     await expect(invite).toBeEnabled();
     await page.screenshot({ path: `artifacts/optional-test-preview-${width}.png`, fullPage: true });
     await invite.click();
+    await expect(panel.getByText(/Zaproszenie do testu zapisane/)).toBeVisible();
     await page.reload();
     await page.getByRole("tab", { name: "Raport z rozmowy" }).click();
     await expect(panel.getByText(/Zaproszenie do testu zapisane/)).toBeVisible();
     await page.goto("/#/auth/sign-in");
     await page.getByRole("button", { name: "Wejdź jako Anna Kowalska" }).click();
+    await expect(page).toHaveURL(/#\/app$/);
     await page.goto("/#/app/aplikacje/" + applicationId);
     const candidate = page.getByRole("region", { name: "Zaproszenie do krótkiego testu" });
     await expect(candidate.getByRole("group")).toHaveCount(2);
     await expect(candidate.getByText(/Klucz:|Poprawna odpowiedź:/)).toHaveCount(0);
     await expect(candidate.getByRole("group").first()).toContainText(revised);
-    await candidate
-      .getByRole("radio", { name: "B. Wskaż brak numeru i poproś o jego uzupełnienie." })
-      .check();
+    const answer = candidate.getByRole("radio", {
+      name: "B. Wskaż brak numeru i poproś o jego uzupełnienie.",
+    });
+    await answer.click();
+    await expect(answer).toBeChecked();
     await page.reload();
-    await expect(
-      candidate.getByRole("radio", { name: "B. Wskaż brak numeru i poproś o jego uzupełnienie." }),
-    ).toBeChecked();
+    await expect(answer).toBeChecked();
     await candidate.getByRole("button", { name: "Prześlij odpowiedzi do testu" }).click();
     await expect(candidate.getByText(/1 poprawna odpowiedź z 1 ocenianej/)).toBeVisible();
     await expect(candidate.getByText(/Wszystkie zadane pytania: 2/)).toBeVisible();
     await page.goto("/#/auth/sign-in");
     await page.getByRole("button", { name: "Wejdź jako Karolina Wiśniewska" }).click();
+    await expect(page).toHaveURL(/#\/app\/oferty$/);
     await page.goto("/#/app/kandydaci/" + applicationId);
     await page.getByRole("tab", { name: "Raport z rozmowy" }).click();
     await expect(panel.getByText(/1 poprawna odpowiedź z 1 ocenianej/)).toBeVisible();

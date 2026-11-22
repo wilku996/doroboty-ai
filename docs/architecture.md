@@ -8,13 +8,13 @@ JSON marketplace/person fixtures → initialState → PrototypeProvider → feat
 
 Candidate source notes, generated draft and approved application are distinct fields. Submission snapshots CV, candidate name, job title, scenario score and summary. Employer stage events are appended, with private-in-the-UI notes. Profile/job edits do not rewrite submitted records.
 
-Storage uses one versioned localStorage key. Import validates schema/version, unique IDs, cross-references and stage history before replacing state. Unreadable/incompatible saves are protected against automatic overwrite; settings can download the original raw save, import a valid file or explicitly reset. Failed/quota-limited persistence leaves the in-memory app usable and offers export. Import/export is capped at 2 MB; no binary CV storage.
+Storage uses one versioned scenario record in IndexedDB. Older version-1 localStorage saves are read on startup and retired only after a successful write. Import validates schema/version, unique IDs, cross-references and stage history before replacing state. Unreadable/incompatible saves are protected against automatic overwrite; settings can download the original raw save, import a valid file or explicitly reset. Failed/quota-limited persistence leaves the in-memory app usable and offers export. Import/export is capped at 2 MB; no binary CV storage.
 
 ## Features
 
 src/features/prototype owns model/storage/state and page compositions. src/features/jobs retains reusable presentation/filter/description logic; src/components/ui owns Base UI controls. Keep changes small.
 
-LocalStorage is origin-specific. Reload preserves state; another browser/device/port starts separately. No cross-tab live synchronization is provided; close other tabs before editing/importing. Hash links reference records in the receiving browser, not transferred records.
+Browser storage is origin-specific. Reload preserves state; another browser/device/port starts separately. An IndexedDB transaction compares and replaces the scenario in one operation. An edit, import or reset based on a changed save is rejected without replacing the current form or applying the change. Reload after copying any unsaved input to read the latest state. Hash links reference records in the receiving browser, not transferred records.
 
 ## Evidence and distribution
 

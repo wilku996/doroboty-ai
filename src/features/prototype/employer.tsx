@@ -79,7 +79,7 @@ export function EmployerJobEditor() {
   const [approved, setApproved] = useState(false);
   const [error, setError] = useState("");
   if (id !== "nowa" && !existing) return <NotFound />;
-  function publish(e: FormEvent<HTMLFormElement>) {
+  async function publish(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
     if (!approved) {
@@ -133,7 +133,7 @@ export function EmployerJobEditor() {
       );
       return;
     }
-    if (run({ type: "publish", job: parsed.data })) navigate("/app/oferty");
+    if (await run({ type: "publish", job: parsed.data })) navigate("/app/oferty");
   }
   return (
     <>
@@ -277,11 +277,11 @@ export function CompanyEditor() {
   const person = currentPerson(state)!;
   const company = state.companies.find((x) => x.id === person.companyId)!;
   const [message, setMessage] = useState("");
-  function save(e: FormEvent<HTMLFormElement>) {
+  async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     if (
-      run({
+      await run({
         type: "company",
         name: String(data.get("name")),
         description: String(data.get("description")),

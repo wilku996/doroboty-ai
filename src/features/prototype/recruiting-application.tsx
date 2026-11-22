@@ -53,8 +53,10 @@ export function RecruitingApplication({ application }: { application: Applicatio
                   <Button
                     key={stage}
                     variant={stage === "rejected" ? "outline" : "default"}
-                    onClick={() => {
-                      if (run({ type: "stage", applicationId: application.id, stage, note })) {
+                    onClick={async () => {
+                      if (
+                        await run({ type: "stage", applicationId: application.id, stage, note })
+                      ) {
                         setNote("");
                         setAnnouncement(
                           application.stage === "rejected"
